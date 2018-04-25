@@ -6,45 +6,45 @@ library(rworldmap)
 #separar base por continente
 dados <- fread("chegada_turistas_compilado.csv")
 dados_africa <- dados %>% 
-  select(Continente, ano, Chegadas) %>% 
+  select(Continente, mes_ano, Chegadas, verao, primavera, outono, inverno) %>% 
   filter(Continente == "África") %>% 
-  group_by(Continente, ano) %>% 
+  group_by(Continente, mes_ano,  verao, primavera, outono, inverno) %>% 
   summarise(Chegadas = sum(Chegadas))
 
 dados_europa <- dados %>% 
-  select(Continente, ano, Chegadas) %>% 
+  select(Continente, mes_ano, Chegadas, verao, primavera, outono, inverno) %>% 
   filter(Continente == "Europa") %>% 
-  group_by(Continente, ano) %>% 
+  group_by(Continente, mes_ano, verao, primavera, outono, inverno) %>% 
   summarise(Chegadas = sum(Chegadas))
 
 dados_americacentral <- dados %>% 
-  select(Continente, ano, Chegadas) %>% 
+  select(Continente, mes_ano, Chegadas, verao, primavera, outono, inverno) %>% 
   filter(Continente == "América Central e Caribe") %>% 
-  group_by(Continente, ano) %>% 
+  group_by(Continente, mes_ano,  verao, primavera, outono, inverno) %>% 
   summarise(Chegadas = sum(Chegadas))
 
 dados_americanorte <- dados %>% 
-  select(Continente, ano, Chegadas) %>% 
+  select(Continente, mes_ano, Chegadas, verao, primavera, outono, inverno) %>% 
   filter(Continente == "América do Norte") %>% 
-  group_by(Continente, ano) %>% 
+  group_by(Continente, mes_ano,  verao, primavera, outono, inverno) %>% 
   summarise(Chegadas = sum(Chegadas))
 
 dados_asia <- dados %>% 
-  select(Continente,  ano, Chegadas) %>% 
+  select(Continente,  mes_ano, Chegadas, verao, primavera, outono, inverno) %>% 
   filter(Continente == "Ásia") %>% 
-  group_by(Continente, ano) %>% 
+  group_by(Continente, mes_ano,  verao, primavera, outono, inverno) %>% 
   summarise(Chegadas = sum(Chegadas))
 
 dados_oceania <- dados %>% 
-  select(Continente, ano, Chegadas) %>% 
+  select(Continente, mes_ano, Chegadas, verao, primavera, outono, inverno) %>% 
   filter(Continente == "Oceania") %>% 
-  group_by(Continente, ano) %>% 
+  group_by(Continente, mes_ano,  verao, primavera, outono, inverno) %>% 
   summarise(Chegadas = sum(Chegadas))
 
 dados_naoespecificado <- dados %>% 
-  select(Continente, ano, Chegadas) %>% 
+  select(Continente, mes_ano, Chegadas, verao, primavera, outono, inverno) %>% 
   filter(Continente == "Continente não especificado") %>% 
-  group_by(Continente, ano) %>% 
+  group_by(Continente, mes_ano,  verao, primavera, outono, inverno) %>% 
   summarise(Chegadas = sum(Chegadas))
 
 #Função para calculo do retorno
@@ -64,9 +64,14 @@ dados_asia$percent <- calcula_retorno(dados_asia$Chegadas, k = 1)
 dados_europa$percent <- calcula_retorno(dados_europa$Chegadas, k = 1)
 dados_oceania$percent <- calcula_retorno(dados_oceania$Chegadas, k = 1)
 dados_naoespecificado$percent <- calcula_retorno(dados_naoespecificado$Chegadas, k = 1)
-acf(dados_africa$percent, na.action = na.pass)
-
-
+acf(dados_europa$percent, na.action = na.pass)
+#Salvando dados
+write.csv(dados_africa, file = "Africa.csv")
+write.csv(dados_europa, file = "Europa.csv")
+write.csv(dados_americacentral, file = "America_Central.csv")
+write.csv(dados_americanorte, file = "America_Norte.csv")
+write.csv(dados_oceania, file = "Oceania.csv")
+write.csv(dados_naoespecificado, file = "Nao_Especificado.csv")
 #Dados de Crescimento Populacional 
 pop <- fread("API_SP.POP.GROW_DS2_en_csv_v2.csv", header = T, sep = ",")
 pop_temp <- str_split_fixed(pop$`Country Name,""Country Code"`, pattern = ",", 2)
