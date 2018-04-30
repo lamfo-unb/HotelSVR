@@ -1,18 +1,18 @@
 library(kernlab)
 library(dplyr)
 
-#Variável Dependente 
-y <- as.numeric(dados_europa$percent)
+#Variável Dependente
+y <- as.numeric(dados_oceania$percent)
 y[2] <- 0
 y <- na.omit(y)
-y.lag <- as.numeric(dados_europa$percent)
+y.lag <- as.numeric(dados_oceania$percent)
 y.lag[1:2] <- 0
 
 #Variável Independente 
 colunas <- c(3:6)
-x <- subset(dados_europa, select = colunas)
+x <- subset(dados_oceania, select = colunas)
 X <- as.matrix(cbind(y.lag, x))
-ids<-sample(1:nrow(dados_europa),0.7*nrow(dados_europa))
+ids<-sample(1:nrow(dados_oceania),0.7*nrow(dados_oceania))
 
 #Training Process
 a.Vet<-seq(0.1,5,0.05)
@@ -41,6 +41,7 @@ for(i in 1:R){
   
   #Observed
   obsv  <- as.data.frame(y[ids])
+  obsv[which(is.na(obsv)),1] <- mean(obsv$`y[ids]`, na.rm = TRUE)
   
   #Error
   res<-preds-obsv
