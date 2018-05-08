@@ -38,5 +38,5 @@ K.pred <- as.kernelMatrix(K[,SVindex(svr), drop=F])
 preds <- as.data.frame(predict(svr, K.pred))
 treino$preds <- preds
 
-ggplot(treino, aes(x = mes_ano, y = percent)) + geom_point()
+ggplot(treino, aes(x = mes_ano, y = c(percent, preds))) + geom_point()
 

@@ -72,7 +72,7 @@ write.csv(dados_europa, file = "Europa.csv")
 write.csv(dados_americacentral, file = "America_Central.csv")
 write.csv(dados_americanorte, file = "America_Norte.csv")
 write.csv(dados_oceania, file = "Oceania.csv")
-write.csv(dados_naoespecificado, file = "Nao_Especificado.csv")
+write.csv(dados_asia, file = "Asia.csv")
 
 #Dados de Crescimento Populacional 
 pop <- fread("API_SP.POP.GROW_DS2_en_csv_v2.csv", header = T, sep = ",")
