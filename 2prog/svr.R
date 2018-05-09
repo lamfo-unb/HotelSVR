@@ -3,10 +3,10 @@ library(dplyr)
 library(tidyr)
 
 #Variável Dependente
-dados_americacentral <- dados_americacentral[-1,]
-y <- as.numeric(dados_americacentral$percent)
+dados_europa <- dados_europa[-1,]
+y <- as.numeric(dados_europa$percent)
 y <- na.omit(y)
-y.lag <- as.numeric(dados_americacentral$percent)
+y.lag <- as.numeric(dados_europa$percent)
 Y <- cbind(y, y.lag)
 Y <- Y[-1,]
 y <- Y[,1]
@@ -14,16 +14,16 @@ y.lag <- Y[,2]
 
 
 #Variável Independente 
-dados_americacentral <- na.omit(dados_americacentral)
+dados_europa <- na.omit(dados_europa)
 colunas <- c(3:6)
 x <- subset(dados_asia, select = colunas)
 X <- as.matrix(cbind(y.lag, x))
-ids <- 1:nrow(dados_americacentral)
-ids_train <- sample(ids, 0.7*nrow(dados_americacentral))
+ids <- 1:nrow(dados_europa)
+ids_train <- sample(ids, 0.7*nrow(dados_europa))
 ids_valid <- ids[-ids_train]
-ids_valid <- sample(ids_valid, 0.2*nrow(dados_americacentral))
+ids_valid <- sample(ids_valid, 0.2*nrow(dados_europa))
 ids_test <- ids[-ids_valid]
-ids_test <- sample(ids_test, 0.1*nrow(dados_americacentral))
+ids_test <- sample(ids_test, 0.1*nrow(dados_europa))
 
 #Training Process
 a.Vet <- seq(0.1,5,0.05)
@@ -62,7 +62,8 @@ for(i in 1:R){
   temp<-data.frame("Kernel"="Mexican","Parameter1"=a.Vet[i],"MSE"=MSE0)
   suportVector<-rbind(suportVector,temp)
 }
-suportVector<-suportVector[-1,]
+suportVector_europa <-suportVector[-1,]
+suportVector_europa[which.min(suportVector_europa$MSE),]
 write.csv(suportVector,"MexicanHat.csv")
 
 
