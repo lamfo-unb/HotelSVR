@@ -16,7 +16,7 @@ y.lag <- Y[,2]
 #Variável Independente 
 dados_europa <- na.omit(dados_europa)
 colunas <- c(3:6)
-x <- subset(dados_asia, select = colunas)
+x <- subset(dados_europa, select = colunas)
 X <- as.matrix(cbind(y.lag, x))
 ids <- 1:nrow(dados_europa)
 ids_train <- sample(ids, 0.7*nrow(dados_europa))
@@ -63,7 +63,7 @@ for(i in 1:R){
   suportVector<-rbind(suportVector,temp)
 }
 suportVector_europa <-suportVector[-1,]
-suportVector_europa[which.min(suportVector_europa$MSE),]
+paramsMexican<-suportVector_europa[which.min(suportVector_europa$MSE),]
 write.csv(suportVector,"MexicanHat.csv")
 
 
