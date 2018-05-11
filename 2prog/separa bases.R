@@ -55,8 +55,14 @@ calcula_retorno <- function(x, k){
   return(z)
 }
 
+calcula_logretorno <- function(x, k){
+  d <- c(NA, diff(log(x), lag = k))
+  y <- c(rep(NA, k), lag(x, k = k))[1:length(x)]
+  z <- d/y
+  return(z)
+}
 
-#Criar Defasagens 
+#Criar Defasagens usando retorno discreto
 dados_africa$percent <- calcula_retorno(dados_africa$Chegadas, k = 1) 
 dados_americacentral$percent <- calcula_retorno(dados_americacentral$Chegadas, k=1)
 dados_americanorte$percent <- calcula_retorno(dados_americanorte$Chegadas, k = 1)
@@ -64,14 +70,24 @@ dados_asia$percent <- calcula_retorno(dados_asia$Chegadas, k = 1)
 dados_europa$percent <- calcula_retorno(dados_europa$Chegadas, k = 1)
 dados_oceania$percent <- calcula_retorno(dados_oceania$Chegadas, k = 1)
 dados_naoespecificado$percent <- calcula_retorno(dados_naoespecificado$Chegadas, k = 1)
+
+#Criar defasagens usando log-retorno
+dados_africa$percent <- calcula_logretorno(dados_africa$Chegadas, k = 1) 
+dados_americacentral$percent <- calcula_logretorno(dados_americacentral$Chegadas, k=1)
+dados_americanorte$percent <- calcula_logretorno(dados_americanorte$Chegadas, k = 1)
+dados_asia$percent <- calcula_logretorno(dados_asia$Chegadas, k = 1)
+dados_europa$percent <- calcula_logretorno(dados_europa$Chegadas, k = 1)
+dados_oceania$percent <- calcula_logretorno(dados_oceania$Chegadas, k = 1)
+dados_naoespecificado$percent <- calcula_logretorno(dados_naoespecificado$Chegadas, k = 1)
+
 acf(dados_europa$percent, na.action = na.pass)
 
 #Salvando dados
-write.csv(dados_africa, file = "Africa.csv")
-write.csv(dados_europa, file = "Europa.csv")
-write.csv(dados_americacentral, file = "America_Central.csv")
-write.csv(dados_americanorte, file = "America_Norte.csv")
-write.csv(dados_oceania, file = "Oceania.csv")
+write.csv(dados_africa, file = "africa_logret.csv")
+write.csv(dados_europa, file = "europa_logret.csv")
+write.csv(dados_americacentral, file = "america_central_logret.csv")
+write.csv(dados_americanorte, file = "america_norte_logret.csv")
+write.csv(dados_oceania, file = "oceania_logret.csv")
 write.csv(dados_asia, file = "Asia.csv")
 
 #Dados de Crescimento Populacional 

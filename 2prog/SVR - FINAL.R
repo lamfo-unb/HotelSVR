@@ -4,8 +4,8 @@ library(readxl)
 library(ggplot2)
 
 
-paramsMexican<-read_xlsx("C:/Users/b2680605/HotelSVR/1data/Parametros - Mexican Hat.xlsx")
-parmsPolynom<- read_xlsx("C:/Users/b2680605/HotelSVR/1data/Parametros - Polinomial.xlsx")
+paramsMexican<-read_xlsx("1data/Parametros - Mexican Hat.xlsx")
+parmsPolynom<- read_xlsx("1data/Parametros - Polinomial.xlsx")
 
 
 #Variável Dependente 
