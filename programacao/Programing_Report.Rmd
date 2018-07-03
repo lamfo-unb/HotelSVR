@@ -1,0 +1,692 @@
+---
+title: "LSTM"
+author: "Grupo LSTM"
+date: "25/06/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+t0 <- Sys.time()
+rm(list = ls())
+
+roda_modelo <- F
+
+```
+
+
+
+# Instalação Keras
+
+
+As funções do modelo LSTM estão disponíveis no pacotes [Keras](https://keras.io/). Para isso é necessário ter instalado a ambiente [Anaconda](https://www.anaconda.com/download/). Em seguida, a instalação do pacote e suas dependências devem ser feita por meio do prompt de comando do Anaconda. No Windows isso pode ser feito, seguindo os passos sugeridos [aqui](https://medium.com/@pushkarmandot/installing-tensorflow-theano-and-keras-in-spyder-84de7eb0f0df) , digitando "Anaconda cmd" e importando as bibliotecas:
+
+ * **theano**: "conda install theano"
+  
+ * **tensorflow**: "conda install tensorflow"
+ 
+ * **keras**: "conda install keras"
+
+
+<!-- https://www.pyimagesearch.com/2016/07/18/installing-keras-for-deep-learning/ -->
+<!-- https://medium.com/@pushkarmandot/installing-tensorflow-theano-and-keras-in-spyder-84de7eb0f0df -->
+
+
+Feito isso, é possível chamar tais funcionalidades no ambiente [R](https://www.r-project.org/) ou python. Nesse trabalhos utilizaremos a plataforma R.
+
+
+
+
+
+```{r packages, include=TRUE,echo=TRUE,message=FALSE}
+
+# Core Tidyverse
+library(tidyverse)
+library(glue)
+library(forcats)
+
+# Time Series
+library(timetk)
+library(tidyquant)
+library(tibbletime)
+
+# Visualization
+library(cowplot)
+
+# Preprocessing
+library(recipes)
+library(dplyr)
+library(data.table)
+library(xtable)
+library(knitr)
+library(kableExtra)
+
+# Sampling / Accuracy
+library(rsample)
+library(yardstick) 
+
+# Modeling
+library(keras)
+
+
+```
+
+
+# Importando base de dados
+
+A base de dados utilizada é disponibilizada pelo Ministério do turismo e registra o número de chegadas em cada via de acesso (aéreo, terrestre, marítimo e pluvial) em cada UF do país por mês desde janeiro de 1989.
+
+O modelo será aplicada para as UF que possuem maior relevância em cada via de acesso, considerando o número total de chegadas. As informações são apresentadas na tabela a seguir.
+
+
+
+```{r data, include=TRUE,echo=TRUE,message=FALSE,results=TRUE,warning=FALSE}
+## Data loading
+
+dir_base <- dirname(getwd())
+base <- readRDS(file.path(dir_base,"dados/dados_consolidados.rds"))
+
+
+base_tratada <- base %>% 
+  group_by(ano,Ordem_mes,UF,`Ordem UF`,`Via de acesso`,`Ordem via de acesso`) %>%
+  summarise(N = sum(Chegadas)) %>%
+  mutate(index = as.Date(paste0("01-",Ordem_mes,"-",ano),format = "%d-%m-%Y"))  %>%
+  as_tbl_time(index = index) %>%
+  mutate(grouping=sprintf("%s-%s",UF,`Via de acesso`)) %>%
+  arrange(grouping,index) %>% 
+  mutate(N = ifelse(N==0,0.1,N)) %>% as.data.table()
+
+
+modelos_para_estimar <- base_tratada %>% 
+  group_by(grouping,UF,`Ordem UF`,`Via de acesso`,`Ordem via de acesso`) %>%
+  summarise(obs = length(N),
+            chegadas = sum(N)) %>%
+  filter(!grepl("Outras",UF)) %>% as.data.table()
+
+
+modelos_para_estimar[,maxs:=max(chegadas),by = "Ordem via de acesso"]
+modelos_para_estimar <- modelos_para_estimar %>%
+  filter(maxs==chegadas)
+
+base_tratada <- base_tratada %>%
+  left_join(modelos_para_estimar %>% select(c("UF",
+                                   "Via de acesso","maxs")),by = c("UF",
+                                   "Via de acesso")) %>% 
+  filter(!is.na(maxs)) %>% as.data.table()
+
+base_tratada[,prev_12 := lag(N,12), 
+             by = c("Ordem UF","Via de acesso")]
+base_tratada[,prev_1 := lag(N,1), 
+             by = c("Ordem UF","Via de acesso")]
+
+base_tratada <- base_tratada %>%
+  filter(!is.na(prev_12)&!is.na(prev_12)) %>%
+  mutate(log_return = ifelse(grepl("paulo",grouping,ignore.case = T),
+                             log(N/prev_1),
+                            log(N/prev_12)))
+
+
+kable(modelos_para_estimar %>% select(c("UF","Via de acesso","obs","chegadas")),
+      col.names = c("UF","Via de acesso","Observações","Chegadas"),
+      caption = "Descritiva") %>%
+  kable_styling(full_width = T) 
+
+
+```
+
+
+Visualizando
+
+```{r grafico, include=TRUE,echo=TRUE,message=T,results='asis',warning=FALSE}
+
+# ggplot
+g0 <- base_tratada %>% ggplot(aes(x=index,
+                            y=log_return,
+                            group = grouping)) +
+  geom_line(aes(color=grouping),size = 1.0)+
+  labs(x="Data",y="Log retorno de 12 meses",
+       title="Chegadas por UF e via de acesso",
+       caption="")+
+  theme(plot.caption=element_text(hjust=0),
+        plot.title=element_text(face="bold",size=12),
+        legend.title = element_blank(),
+        legend.text = element_text(size=10)) + theme(legend.position="bottom",legend.direction="horizontal")+
+  guides(colour=guide_legend(nrow=2));g0
+
+      
+    nome_plot <- paste0(dir_base,"/resultados/series_obs_log.pdf")
+    ggsave(g0,filename = nome_plot ) 
+    
+    
+  g0 <- base_tratada %>% ggplot(aes(x=index,
+                            y=N/10^3,
+                            group = grouping)) +
+  geom_line(aes(color=grouping),size = 1.0)+
+  labs(x="Data",y="Chegadas (milhares)",
+       title="Chegadas por UF e via de acesso",
+       caption="")+
+  theme(plot.caption=element_text(hjust=0),
+        plot.title=element_text(face="bold",size=12),
+        legend.title = element_blank(),
+        legend.text = element_text(size=10)) + theme(legend.position="bottom",legend.direction="horizontal")+
+  guides(colour=guide_legend(nrow=2));g0
+
+      
+    nome_plot <- paste0(dir_base,"/resultados/series_obs_N.pdf")
+    ggsave(g0,filename = nome_plot ) 
+    
+    
+
+i <- 1
+for(i in 1:nrow(modelos_para_estimar)){
+  
+  #Autocorrelation
+  tmp_serie <- base_tratada %>%
+    filter(grouping==modelos_para_estimar$grouping[i]) %>%
+    select(N) %>% t() %>% as.vector()
+  
+  titulo <- ifelse(grepl("paulo",modelos_para_estimar$grouping[i],ignore.case = T),
+                             paste0("Original: ",modelos_para_estimar$grouping[i]),
+                            paste0("Original: ",modelos_para_estimar$grouping[i]))
+  
+  acf(tmp_serie, ci = 0.95,main=titulo)
+  
+  #decomposição
+  serie_original <- ts(tmp_serie, frequency=12)
+  serie_original <- decompose(serie_original, type = "additive")
+  plot(serie_original)
+    
+    
+  print(Box.test(tmp_serie, lag=40, type="Ljung-Box"))
+  print(tseries::adf.test(tmp_serie, alternative="stationary"))
+  print(tseries::kpss.test(tmp_serie))
+
+    tmp_serie <- base_tratada %>%
+    filter(grouping==modelos_para_estimar$grouping[i]) %>%
+    select(log_return) %>% t() %>% as.vector()
+    
+      titulo <- ifelse(grepl("paulo",modelos_para_estimar$grouping[i],ignore.case = T),
+                             paste0("Log1: ",modelos_para_estimar$grouping[i]),
+                            paste0("Log12: ",modelos_para_estimar$grouping[i]))
+      
+    acf(tmp_serie, ci = 0.95,main=titulo)
+
+
+    serie_diferenciada <- ts(tmp_serie, frequency=12)
+    serie_diferenciada <- decompose(serie_diferenciada, type = "additive")
+    plot(serie_diferenciada)
+    
+    print(Box.test(tmp_serie, lag=40, type="Ljung-Box"))
+    print(tseries::adf.test(tmp_serie, alternative="stationary"))
+    print(tseries::kpss.test(tmp_serie))
+
+}
+
+
+```
+
+
+# Configuração do modelo
+
+Para o modelo iremos considerar:
+
+ * Série temporal desejada: $Y_t$ chegadas por via.
+ 
+ * Transformação em $Y_t$: $r_t = log(Y_t/Y_{12})$
+ 
+ * Tamanho da base de treino: $75\%$ do total de observações
+ 
+ * Tamanho da base de teste: $25\%$ do total de observações
+ 
+ * Número de camadas: 2
+ 
+ * Número de neurônios em cada camada: $15$ e $50$
+ 
+ * Função de ativação: $tanh$ com viés de ativação
+ 
+ * Tamnho do *batch*: mini lotes de estimaçã do modelo (tamanho da base de teste)
+
+ * Número de lags para o modelo: $tsteps = 1$
+ 
+ * Número de epochs (iterações de *forward/backward pass* ): 200
+ 
+ * Regressor para o modelo: $r_{t-1} e r_{t-12}$
+ 
+ * Função de perda: Erro médio absoluto (mae)
+ 
+ * Método de otimização: [Adam](https://arxiv.org/abs/1412.6980v8)
+
+
+Mais informações sobre esses e outros parâmetros para configuração das camadas podem ser encontrados [aqui](https://www.rdocumentation.org/packages/keras/versions/2.1.6/topics/layer_lstm) e sobre a configuração inicial do modelo LSTM [aqui](https://www.rdocumentation.org/packages/keras/versions/2.1.6/topics/keras_model_sequential).
+
+
+```{r set_model,eval=roda_modelo,include=roda_modelo,echo=roda_modelo,message=F,results='asis',warning=F}
+
+ tsteps       <- 1
+ epochs       <- 200
+
+
+var_analise <- "log_return"
+expand_grids_geral <- NULL
+j <- 1
+for(j in 1:nrow(modelos_para_estimar)){
+
+  base_tratada_temp <- base_tratada %>%
+    filter(grouping==modelos_para_estimar$grouping[j]) %>%
+    arrange(index)
+
+    mean_value <- mean(base_tratada_temp %>% select(var_analise) %>% t()
+                     %>% as.vector(),na.rm=T)
+  sd_value <- sd(base_tratada_temp %>% select(var_analise) %>% t() %>%
+                     as.vector(),na.rm=T)
+
+  base_tratada_temp <- base_tratada_temp %>%
+    mutate(value = (!!sym(var_analise) - mean_value)/sd_value)
+
+expand_grids <- expand.grid(lag_setting=c(1,12),
+                              # dropout = seq(0.1,.9,by=.4),
+                              # recurrent_dropout = seq(0.1,.9,by=.4),
+                              unidades = c(15,25,50))
+
+expand_grids$RMSE <- NA
+kk <- 1
+  for(kk in 1:nrow(expand_grids)){
+
+
+  lag_setting  <- expand_grids$lag_setting[kk]
+  unidades <- expand_grids$unidades[kk]
+
+  base_tratada_temp_temp <- base_tratada_temp
+
+  base_tratada_temp_temp$value_lag <-  lag(base_tratada_temp_temp$value,
+                                   n = lag_setting)
+
+
+    base_tratada_temp_temp <- base_tratada_temp_temp %>%
+      filter(!is.na(value_lag))
+
+    ## batch é 1/4 da base
+    test_length <- trunc(nrow(base_tratada_temp_temp)/4)
+    train_length <- test_length*3
+    batch_size <- test_length
+
+
+    data_training <- tail(sort(base_tratada_temp_temp$index),
+                    train_length)[1]
+
+    data_test <- tail(sort(base_tratada_temp_temp$index),
+                    test_length)[1]
+
+
+    base_tratada_temp_temp <- base_tratada_temp_temp %>%
+      filter(index >= data_training) %>%
+      mutate(type_data = ifelse(index < data_test,"training",
+                                "test"))
+
+    x_train_vec <- (base_tratada_temp_temp %>% filter(type_data=="training"))$value_lag
+    x_train_arr <- array(data = x_train_vec, dim = c(length(x_train_vec), tsteps, 1))
+
+    y_train_vec <- (base_tratada_temp_temp %>% filter(type_data=="training"))$value
+    y_train_arr <- array(data = y_train_vec, dim = c(length(y_train_vec), 1))
+
+    x_test_vec <- (base_tratada_temp_temp %>% filter(type_data=="test"))$value_lag
+    x_test_arr <- array(data = x_test_vec, dim = c(length(x_test_vec), tsteps, 1))
+
+    y_test_vec <- (base_tratada_temp_temp %>% filter(type_data=="test"))$value
+    y_test_arr <- array(data = y_test_vec, dim = c(length(y_test_vec), 1))
+
+
+    # 5.1.6 LSTM Model
+    model <- keras_model_sequential()
+
+
+    model %>%
+       layer_lstm(units            = unidades,
+                  input_shape      = c(tsteps, 1),
+                  batch_size       = batch_size,
+                  return_sequences = TRUE,
+                  stateful         = TRUE) %>%
+       layer_lstm(units            = unidades,
+                  return_sequences = FALSE,
+                  stateful         = TRUE) %>%
+       layer_dense(units = 1)
+
+
+    model %>%
+      compile(loss = 'mae',
+              optimizer = 'adam')
+
+
+    # 5.1.7 Fitting LSTM
+    model %>% fit(x          = x_train_arr,
+                          y          = y_train_arr,
+                          batch_size = batch_size,
+                          epochs     = 1,
+                          verbose    = 1,
+                          shuffle    = FALSE)
+
+    # 5.1.7 Fitting LSTM
+    for (i in 1:epochs) {
+      model %>% fit(x          = x_train_arr,
+                            y          = y_train_arr,
+                            batch_size = batch_size,
+                            epochs     = 1,
+                            verbose    = 1,
+                            shuffle    = FALSE)
+
+      model %>% reset_states()
+      cat("Epoch: ", i)
+
+    }
+
+
+    # 5.1.8 Predict and Return Tidy Data
+    # Make Predictions
+    pred_out <- model %>%
+      predict(x_test_arr,
+              batch_size = batch_size) %>%
+      .[,1]
+
+    # Retransform values
+    pred_tbl <- tibble(
+      index   = (base_tratada_temp_temp %>% filter(type_data=="test"))$index,
+      value = pred_out,
+      log_return  = pred_out *sd_value  + mean_value,
+      type_data = "predict"
+    )
+
+
+    base_tratada_0 <- rbindlist(list(base_tratada_temp_temp,pred_tbl),fill=TRUE)
+
+
+    data_trainig_last <- base_tratada_0 %>% filter(type_data=="training") %>% summarise(max(index))
+
+    base_tratada_0 <- rbind(base_tratada_0,
+                            base_tratada_0 %>%
+                              filter((index==data_trainig_last)) %>%
+                              mutate(type_data="test"),
+                            base_tratada_0 %>%
+                              filter((index==data_trainig_last)) %>%
+                              mutate(type_data="predict"))
+
+  a <-   base_tratada_0 %>% select(index,log_return,type_data) %>%
+    left_join(base_tratada_temp_temp %>%
+                select(N,index),by = "index") %>%
+    spread(key = type_data,value = log_return) %>%
+    mutate(lag_N = lag(N,12),
+           N_predic = round(ifelse(is.na(predict),
+                                   lag_N * exp(training),
+                                   lag_N * exp(predict)),0),
+           training = N,
+           training = ifelse(!is.na(training),training,NA),
+           predict = ifelse(is.na(training),NA,lag_N * exp(predict)),
+           test = ifelse(is.na(training),NA,lag_N * exp(test))) %>%
+    select(index,predict,training,test) %>%
+    gather(key = "type_data", value = "N_predict",-index)
+
+  base_tratada_0 <- base_tratada_0 %>%
+    left_join(a,by = c("index","type_data"))
+
+
+    rmse_valor <- mean((pred_tbl$log_return - ((base_tratada_temp_temp %>% filter(type_data=="test"))$log_return))^2)^.5
+
+    g <- ggplot(data = base_tratada_0) +
+      geom_line(aes(index, log_return, color = type_data),
+                size = 1 ) +
+      scale_color_tq() +
+      theme(legend.position = "bottom") +
+      labs(
+        title = paste0("RMSE=",round(rmse_valor,1)),
+        x = "Mês/Ano", y = "log retorno chegadas")
+
+    g
+
+    g2 <- ggplot(data = base_tratada_0) +
+      geom_line(aes(index, N_predict, color = type_data),
+                size = 1 ) +
+      scale_color_tq() +
+      theme(legend.position = "bottom") +
+      labs(
+        title = paste0("RMSE=",round(rmse_valor,1)),
+        x = "Mês/Ano", y = "Chegadas")
+
+    g2
+
+
+    nome_plot <- paste0(dir_base,"/resultados/forecast_retorno_u",unidades,"_t",
+                        "_lag",lag_setting,
+                        "_mod",modelos_para_estimar$grouping[j],
+                        ".pdf")
+    ggsave(g,filename = nome_plot )
+    nome_plot <- paste0(dir_base,"/resultados/forecast_chegada_u",unidades,"_t",
+                        "_lag",lag_setting,
+                        "_mod",modelos_para_estimar$grouping[j],
+                        ".pdf")
+    ggsave(g2,filename = nome_plot )
+
+
+    expand_grids$RMSE[kk] <- rmse_valor
+  }
+
+expand_grids$modelo <- modelos_para_estimar$grouping[j]
+expand_grids_geral <- rbind(expand_grids_geral,expand_grids)
+}
+
+saveRDS(expand_grids_geral,paste0(dir_base,"/resultados/grid_seach_geral_rmd.rds"))
+```
+
+
+A melhor configuração para os modelos após o grid search são apresentadas a seguir:
+
+```{r best_set_model, include=T,echo=T,message=F,results='asis',warning=F}
+expand_grids_geral <- readRDS(file.path(dir_base,"/resultados/grid_seach_geral_rmd.rds"))
+
+expand_grids_geral <- expand_grids_geral %>% as.data.table()
+expand_grids_geral[,minbest:=min(RMSE),by = modelo]
+
+expand_grids_geral_best <- expand_grids_geral %>%
+  filter(minbest==RMSE)
+
+kable(expand_grids_geral_best)
+```
+
+
+# Modelos finais
+
+
+
+```{r modelos_finais, include=T,echo=T,message=F,results=F,warning=F}
+
+expand_grids_geral <- expand_grids_geral %>% as.data.table()
+expand_grids_geral[,minbest:=min(RMSE),by = modelo]
+
+expand_grids_geral_best <- expand_grids_geral %>%
+  filter(minbest==RMSE)
+
+
+ tsteps       <- 1
+ epochs       <- 200
+
+
+var_analise <- "log_return"
+j <-  1 
+for(j in 1:nrow(expand_grids_geral_best)){
+
+  base_tratada_temp <- base_tratada %>%
+    filter(grouping==expand_grids_geral_best$modelo[j]) %>%
+    arrange(index)
+
+    mean_value <- mean(base_tratada_temp %>% select(var_analise) %>% t()
+                     %>% as.vector(),na.rm=T)
+  sd_value <- sd(base_tratada_temp %>% select(var_analise) %>% t() %>%
+                     as.vector(),na.rm=T)
+
+  base_tratada_temp <- base_tratada_temp %>%
+    mutate(value = (!!sym(var_analise) - mean_value)/sd_value)
+
+  lag_setting  <-  expand_grids_geral_best$lag_setting[j]
+  unidades <- expand_grids_geral_best$unidades[j]
+
+  base_tratada_temp_temp <- base_tratada_temp
+
+  base_tratada_temp_temp$value_lag <-  lag(base_tratada_temp_temp$value,
+                                   n = lag_setting)
+
+
+    base_tratada_temp_temp <- base_tratada_temp_temp %>%
+      filter(!is.na(value_lag))
+
+    ## batch é 1/4 da base
+    test_length <- trunc(nrow(base_tratada_temp_temp)/4)
+    train_length <- test_length*3
+    batch_size <- test_length
+
+
+    data_training <- tail(sort(base_tratada_temp_temp$index),
+                    train_length)[1]
+
+    data_test <- tail(sort(base_tratada_temp_temp$index),
+                    test_length)[1]
+
+
+    base_tratada_temp_temp <- base_tratada_temp_temp %>%
+      filter(index >= data_training) %>%
+      mutate(type_data = ifelse(index < data_test,"training",
+                                "test"))
+
+    x_train_vec <- (base_tratada_temp_temp %>% filter(type_data=="training"))$value_lag
+    x_train_arr <- array(data = x_train_vec, dim = c(length(x_train_vec), tsteps, 1))
+
+    y_train_vec <- (base_tratada_temp_temp %>% filter(type_data=="training"))$value
+    y_train_arr <- array(data = y_train_vec, dim = c(length(y_train_vec), 1))
+
+    x_test_vec <- (base_tratada_temp_temp %>% filter(type_data=="test"))$value_lag
+    x_test_arr <- array(data = x_test_vec, dim = c(length(x_test_vec), tsteps, 1))
+
+    y_test_vec <- (base_tratada_temp_temp %>% filter(type_data=="test"))$value
+    y_test_arr <- array(data = y_test_vec, dim = c(length(y_test_vec), 1))
+
+
+    # 5.1.6 LSTM Model
+    model <- keras_model_sequential()
+    
+    model %>%
+       layer_lstm(units            = unidades,
+                  input_shape      = c(tsteps, 1),
+                  batch_size       = batch_size,
+                  return_sequences = TRUE,
+                  stateful         = TRUE) %>%
+       layer_lstm(units            = unidades,
+                  return_sequences = FALSE,
+                  stateful         = TRUE) %>%
+       layer_dense(units = 1)
+
+
+    model %>%
+      compile(loss = 'mae',
+              optimizer = 'adam')
+
+
+    # 5.1.7 Fitting LSTM
+    model %>% fit(x          = x_train_arr,
+                          y          = y_train_arr,
+                          batch_size = batch_size,
+                          epochs     = 1,
+                          verbose    = 1,
+                          shuffle    = FALSE)
+
+    # 5.1.7 Fitting LSTM
+    for (i in 1:epochs) {
+      model %>% fit(x          = x_train_arr,
+                            y          = y_train_arr,
+                            batch_size = batch_size,
+                            epochs     = 1,
+                            verbose    = 1,
+                            shuffle    = FALSE)
+
+      model %>% reset_states()
+      cat("Epoch: ", i)
+
+    }
+
+
+    # 5.1.8 Predict and Return Tidy Data
+    # Make Predictions
+    pred_out <- model %>%
+      predict(x_test_arr,
+              batch_size = batch_size) %>%
+      .[,1]
+    
+    pred_in <- model %>%
+      predict(x_train_arr,
+              batch_size = batch_size) %>%
+      .[,1]
+
+    # Retransform values
+    pred_tbl <- tibble(
+      index   = (base_tratada_temp_temp %>% filter(type_data=="test"))$index,
+      value = pred_out,
+      log_return  = pred_out *sd_value  + mean_value,
+      type_data = "predict"
+    )
+
+
+    base_tratada_0 <- rbindlist(list(base_tratada_temp_temp,pred_tbl),fill=TRUE)
+
+
+    data_trainig_last <- base_tratada_0 %>% filter(type_data=="training") %>% summarise(max(index))
+
+    base_tratada_0 <- rbind(base_tratada_0,
+                            base_tratada_0 %>%
+                              filter((index==data_trainig_last)) %>%
+                              mutate(type_data="test"),
+                            base_tratada_0 %>%
+                              filter((index==data_trainig_last)) %>%
+                              mutate(type_data="predict"))
+
+  a <-   base_tratada_0 %>% select(index,log_return,type_data) %>%
+    left_join(base_tratada_temp_temp %>%
+                select(N,index),by = "index") %>%
+    spread(key = type_data,value = log_return) %>%
+    mutate(lag_N = lag(N,12),
+           N_predic = round(ifelse(is.na(predict),
+                                   lag_N * exp(training),
+                                   lag_N * exp(predict)),0),
+           training = N,
+           training = ifelse(!is.na(training),training,NA),
+           predict = ifelse(is.na(training),NA,lag_N * exp(predict)),
+           test = ifelse(is.na(training),NA,lag_N * exp(test))) %>%
+    select(index,predict,training,test) %>%
+    gather(key = "type_data", value = "N_predict",-index)
+
+  base_tratada_0 <- base_tratada_0 %>%
+    left_join(a,by = c("index","type_data"))
+
+
+    rmse_valor <- mean((pred_tbl$log_return - ((base_tratada_temp_temp %>% filter(type_data=="test"))$log_return))^2)^.5
+
+   g <- ggplot(data = base_tratada_0) +
+      geom_line(aes(index, log_return, color = type_data),
+                size = 1 ) +
+      scale_color_tq() +
+      theme(legend.position = "bottom") +
+      labs(
+        title = expand_grids_geral_best$modelo[j],
+        x = "Mês/Ano", y = "log retorno chegadas")
+  print(g)
+
+    g <- ggplot(data = base_tratada_0) +
+      geom_line(aes(index, N_predict, color = type_data),
+                size = 1 ) +
+      scale_color_tq() +
+      theme(legend.position = "bottom") +
+      labs(
+        title = expand_grids_geral_best$modelo[j],
+        x = "Mês/Ano", y = "Chegadas")
+  print(g)
+
+}
+
+```
+
+
